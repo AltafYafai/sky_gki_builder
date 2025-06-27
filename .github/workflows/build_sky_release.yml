@@ -1,0 +1,124 @@
+name: Build and Release GKI Kernel for A12 5.10 Only
+
+permissions:
+  contents: write
+  actions: write
+
+on:
+  workflow_dispatch:
+    inputs:
+      make_release:
+        description: "Do you want to create a release?"
+        required: true
+        type: boolean
+        default: true
+      kernelsu_variant:
+        description: "Choose KernelSU"
+        required: true
+        type: choice
+        options:
+          - SukiSU
+        default: SukiSU
+      kernelsu_branch:
+        description: "Choose ksu branch"
+        required: true
+        type: choice
+        options:
+          - Stable
+          - Dev
+          - Other
+        default: Dev
+      kernelsu_branch_other:
+        description: "If 'Other' is selected, specify your custom branch"
+        required: false
+        type: string
+        default: ""
+
+jobs:
+  build-kernel-a12-5-10:
+    uses: ./.github/workflows/kernel-a12-5.10.yml
+    secrets: inherit
+    with:
+      make_release: ${{ inputs.make_release }}
+      kernelsu_variant: ${{ inputs.kernelsu_variant }}
+      kernelsu_branch: ${{ inputs.kernelsu_branch }}
+      kernelsu_branch_other: ${{ inputs.kernelsu_branch_other }}
+
+  trigger-release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      actions: write
+    needs:
+      - build-kernel-a12-5-10
+    if: ${{ inputs.make_release }}
+    env:
+      REPO_OWNER: suvojit213
+      REPO_NAME: sky_gki_builder_suvo
+      GITHUB_TOKEN: ${{ secrets.MY_GITHUB_TOKEN }}
+    steps:
+      - name: Get current date
+        id: date
+        run: echo "currentdate=$(date +\"%Y-%m-%d-%H-%M-%S\")" >> $GITHUB_ENV
+
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Set KernelSU branch
+        run: |
+          if [[ "${{ inputs.kernelsu_variant }}" == "SukiSU" ]]; then
+            echo "KSU_BRANCH=main" >> $GITHUB_ENV
+          elif [[ "${{ inputs.kernelsu_branch }}" == "Other" ]]; then
+            echo "KSU_BRANCH=${{ inputs.kernelsu_branch_other }}" >> $GITHUB_ENV
+          else
+            echo "KSU_BRANCH=${{ inputs.kernelsu_branch }}" >> $GITHUB_ENV
+          fi
+
+      - name: Set KernelSU commit and URL
+        run: |
+          REPO_URL="https://github.com/SukiSU-Ultra/SukiSU-Ultra.git"
+          REPO_URL2="SukiSU-Ultra/SukiSU-Ultra"
+          COMMIT_HASH=$(git ls-remote $REPO_URL refs/heads/$KSU_BRANCH | awk '{ print $1 }')
+          echo "KSU_REF=$COMMIT_HASH" >> $GITHUB_ENV
+          echo "KSU_URL=https://github.com/$REPO_URL2/commit/$COMMIT_HASH" >> $GITHUB_ENV
+
+      - name: Append to release notes
+        run: |
+          echo "RELEASE_NOTES<<EOF" >> $GITHUB_ENV
+          echo "SukiSU Ultra Manager:" >> $GITHUB_ENV
+          echo "- https://github.com/SukiSU-Ultra/SukiSU-Ultra" >> $GITHUB_ENV
+          echo "- KernelSU: [$KSU_REF]($KSU_URL)" >> $GITHUB_ENV
+          echo "EOF" >> $GITHUB_ENV
+
+      - name: Generate Tag
+        run: |
+          echo "NEW_TAG=${{ env.currentdate }}" >> $GITHUB_ENV
+          git tag $NEW_TAG
+          git push --tags
+
+      - name: Download Artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: ./downloaded-artifacts
+
+      - name: Create GitHub Release
+        uses: actions/create-release@v1
+        with:
+          tag_name: ${{ env.NEW_TAG }}
+          prerelease: true
+          release_name: ${{ env.NEW_TAG }}
+          body: ${{ env.RELEASE_NOTES }}
+
+      - name: Upload Release Assets and Notify Telegram
+        run: |
+          for file in ./downloaded-artifacts/kernel-*/*; do
+            [ -d "$file" ] && continue
+            echo "Uploading $file..."
+            gh release upload ${{ env.NEW_TAG }} "$file"
+            curl -s -X POST "https://api.telegram.org/bot7339785633:AAHH5goeO54fdytqHigVrMvd8wVw7VRtWVo/sendDocument" \
+              -F chat_id=696214450 \
+              -F caption="\uD83D\uDE80 *New Release:* ${{ env.NEW_TAG }}\n\n📦 \\`$(basename \"$file\")\\`\n🔗 https://github.com/${{ env.REPO_OWNER }}/${{ env.REPO_NAME }}/releases/tag/${{ env.NEW_TAG }}" \
+              -F document=@"$file" \
+              -F parse_mode=Markdown
+          done
+          echo "✅ Telegram notification with uploads sent successfully."
