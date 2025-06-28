@@ -5,8 +5,10 @@ permissions:
   actions: write
 
 on:
+ push:
+   branches:
+     -main
   workflow_dispatch:
-  workflow_push:
     inputs:
       make_release:
         description: "Do you want to create a release?"

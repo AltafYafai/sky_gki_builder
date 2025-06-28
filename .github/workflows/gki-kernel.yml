@@ -5,6 +5,9 @@ permissions:
   contents: write # Required for creating releases and pushing tags.
 
 on:
+  push:
+    branches:
+      - main
   workflow_call: # Allows this workflow to be called from another workflow.
     inputs:
       make_release:
