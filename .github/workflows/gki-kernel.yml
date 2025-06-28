@@ -8,6 +8,7 @@ on:
   push:
     branches:
       - main
+  workflow_dispatch:
   workflow_call: # Allows this workflow to be called from another workflow.
     inputs:
       make_release:
