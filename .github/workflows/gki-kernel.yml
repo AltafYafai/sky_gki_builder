@@ -1,9 +1,8 @@
-# GitHub Actions Workflow for GKI Kernel Build with Live Telegram Notifications
-# Ye workflow kernel build karega aur Telegram pe live updates dega.
-name: GKI Kernel Build with Live Telegram Notifications
+# GitHub Actions Workflow for GKI Kernel Build with Live Telegram Notifications & GitHub Releases
+# Ye workflow kernel build karega, Telegram pe live updates dega, aur GitHub pe release banayega.
+name: GKI Kernel Build with Live Telegram Notifications & Releases
 permissions:
-  contents: write # Repository contents me likhne ki permission (tags push karne ke liye)
-  actions: write # Actions trigger karne ki permission
+  contents: write # Repository contents/releases me likhne ki permission zaroori hai
 
 on:
   workflow_call: # Isse ye workflow dusre workflow se call ho sakta hai
@@ -37,6 +36,7 @@ on:
         required: false
         type: string
     secrets:
+      # Secrets yahan define karna zaroori hai taaki calling workflow se aa sakein
       TELEGRAM_BOT_TOKEN:
         required: true
       TELEGRAM_CHAT_ID:
@@ -50,10 +50,9 @@ jobs:
       CCACHE_NOHASHDIR: "true"
       CCACHE_HARDLINK: "true"
       ZRAM: "true"
-      # NOTE: Hardcoded credentials use karna acchi practice nahi hai.
-      # Inhe GitHub secrets me daalna behtar hai.
-      TELEGRAM_TOKEN: "8018823912:AAGedWAS21in7NZbQuu3d8i8am8x6DqSQfA"
-      TELEGRAM_CHAT_ID: "-1002798687658"
+      # Ab credentials yahan hardcoded nahi hain. Ye secrets se aa rahe hain.
+      TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+      TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
 
     steps:
       - name: Maximize build space
@@ -73,39 +72,23 @@ jobs:
       - name: Send Initial Telegram Message
         id: send_initial_message
         run: |
-          # Pehla message bhejega aur uski ID save karega
           MESSAGE_TEXT="🚀 **ThunderBlast Kernel Build Shuru!** 🚀%0A%0A*Build abhi shuru hua hai...*%0A%0A*Progress:*%0A\`[□□□□□□□□□□]\` 0%%"
-          
-          RESPONSE=$(curl -s -X POST "https://api.telegram.org/bot${{ env.TELEGRAM_TOKEN }}/sendMessage" \
-            -d "chat_id=${{ env.TELEGRAM_CHAT_ID }}" \
-            -d "text=${MESSAGE_TEXT}" \
-            -d "parse_mode=Markdown")
-          
-          echo "Initial response: $RESPONSE"
+          RESPONSE=$(curl -s -X POST "https://api.telegram.org/bot${{ env.TELEGRAM_TOKEN }}/sendMessage" -d "chat_id=${{ env.TELEGRAM_CHAT_ID }}" -d "text=${MESSAGE_TEXT}" -d "parse_mode=Markdown")
           MESSAGE_ID=$(echo $RESPONSE | jq -r '.result.message_id')
-          
           if [ -z "$MESSAGE_ID" ] || [ "$MESSAGE_ID" == "null" ]; then
-            echo "Error: Telegram message ID nahi mila."
-            echo "Response was: $RESPONSE"
-            exit 1
+            echo "Error: Telegram message ID nahi mila." && exit 1
           fi
-          
           echo "MESSAGE_ID=$MESSAGE_ID" >> $GITHUB_ENV
-          echo "Telegram message ID set to: $MESSAGE_ID"
 
       - name: Set CONFIG Environment Variable and Update Status
         run: |
           CONFIG="${{ inputs.android_version }}-${{ inputs.kernel_version }}-${{ inputs.sub_level }}"
           echo "CONFIG=$CONFIG" >> $GITHUB_ENV
-          echo "CONFIG set to: $CONFIG"
-          
-          # Telegram message update karega
           MESSAGE_TEXT="🚀 **ThunderBlast Kernel Build** 🚀%0A%0A*Status: Environment setup ho raha hai...*%0A%0A*Progress:*%0A\`[■□□□□□□□□□]\` 10%%"
           curl -s -X POST "https://api.telegram.org/bot${{ env.TELEGRAM_TOKEN }}/editMessageText" -d "chat_id=${{ env.TELEGRAM_CHAT_ID }}" -d "message_id=${{ env.MESSAGE_ID }}" -d "text=${MESSAGE_TEXT}" -d "parse_mode=Markdown"
 
       - name: Caching and Toolchain Setup
         run: |
-           # Is step me ccache aur toolchain setup hoga
            mkdir -p ~/.cache/bazel
            ccache --version
            ccache --max-size=2G
@@ -125,87 +108,54 @@ jobs:
             mkbootimg
           key: toolchain-${{ runner.os }}-v1
       - run: |
-          # Telegram message update karega
           MESSAGE_TEXT="🚀 **ThunderBlast Kernel Build** 🚀%0A%0A*Status: Dependencies clone ki jaa rahi hain...*%0A%0A*Progress:*%0A\`[■■□□□□□□□□]\` 20%%"
           curl -s -X POST "https://api.telegram.org/bot${{ env.TELEGRAM_TOKEN }}/editMessageText" -d "chat_id=${{ env.TELEGRAM_CHAT_ID }}" -d "message_id=${{ env.MESSAGE_ID }}" -d "text=${MESSAGE_TEXT}" -d "parse_mode=Markdown"
       
       - name: Download toolchain, Repo, and other setups
         run: |
-          # Yaha saare download aur setup scripts aayenge
           AOSP_MIRROR=https://android.googlesource.com
           BRANCH=main-kernel-build-2024
-          
-          if [ ! -d "kernel-build-tools" ]; then
-            git clone $AOSP_MIRROR/kernel/prebuilts/build-tools -b $BRANCH --depth 1 kernel-build-tools
-          fi
-          
-          if [ ! -d "mkbootimg" ]; then
-            git clone $AOSP_MIRROR/platform/system/tools/mkbootimg -b $BRANCH --depth 1 mkbootimg
-          fi
-
+          [ ! -d "kernel-build-tools" ] && git clone $AOSP_MIRROR/kernel/prebuilts/build-tools -b $BRANCH --depth 1 kernel-build-tools
+          [ ! -d "mkbootimg" ] && git clone $AOSP_MIRROR/platform/system/tools/mkbootimg -b $BRANCH --depth 1 mkbootimg
           echo "AVBTOOL=$GITHUB_WORKSPACE/kernel-build-tools/linux-x86/bin/avbtool" >> $GITHUB_ENV
           echo "MKBOOTIMG=$GITHUB_WORKSPACE/mkbootimg/mkbootimg.py" >> $GITHUB_ENV
           echo "UNPACK_BOOTIMG=$GITHUB_WORKSPACE/mkbootimg/unpack_bootimg.py" >> $GITHUB_ENV
-          
-          if [ ! -f "./git-repo/repo" ]; then
-            mkdir -p ./git-repo && curl https://storage.googleapis.com/git-repo-downloads/repo > ./git-repo/repo && chmod a+rx ./git-repo/repo
-          fi
-          
+          [ ! -f "./git-repo/repo" ] && mkdir -p ./git-repo && curl https://storage.googleapis.com/git-repo-downloads/repo > ./git-repo/repo && chmod a+rx ./git-repo/repo
           echo "REPO=$GITHUB_WORKSPACE/./git-repo/repo" >> $GITHUB_ENV
-          
-          if [ ! -d "susfs4ksu" ]; then
-            git clone https://github.com/ShirkNeko/susfs4ksu.git -b "gki-${{ inputs.android_version }}-${{ inputs.kernel_version }}" susfs4ksu
-          fi
-          
-          if [ ! -d "SukiSU_patch" ]; then
-            git clone https://github.com/ShirkNeko/SukiSU_patch.git
-          fi
-          
-          if [ ! -d "AnyKernel3" ]; then
-            git clone https://github.com/AltafYafai/AnyKernel3.git
-          fi
+          [ ! -d "susfs4ksu" ] && git clone https://github.com/ShirkNeko/susfs4ksu.git -b "gki-${{ inputs.android_version }}-${{ inputs.kernel_version }}" susfs4ksu
+          [ ! -d "SukiSU_patch" ] && git clone https://github.com/ShirkNeko/SukiSU_patch.git
+          [ ! -d "AnyKernel3" ] && git clone https://github.com/AltafYafai/AnyKernel3.git
 
       - name: Sync Kernel Source and Apply Patches
         run: |
-          # Kernel source sync aur patch apply karega
           MESSAGE_TEXT="🚀 **ThunderBlast Kernel Build** 🚀%0A%0A*Status: Kernel source sync ho raha hai...*%0A%0A*Progress:*%0A\`[■■■□□□□□□□]\` 30%%"
           curl -s -X POST "https://api.telegram.org/bot${{ env.TELEGRAM_TOKEN }}/editMessageText" -d "chat_id=${{ env.TELEGRAM_CHAT_ID }}" -d "message_id=${{ env.MESSAGE_ID }}" -d "text=${MESSAGE_TEXT}" -d "parse_mode=Markdown"
-          
           mkdir -p "$CONFIG"
           cd "$CONFIG"
           FORMATTED_BRANCH="${{ inputs.android_version }}-${{ inputs.kernel_version }}-${{ inputs.os_patch_level }}"
           $REPO init --depth=1 -u https://android.googlesource.com/kernel/manifest -b common-${FORMATTED_BRANCH}
           $REPO sync -c -j$(nproc --all) --no-tags --fail-fast
           cd ..
-          
-          # Patches apply karega
           MESSAGE_TEXT="🚀 **ThunderBlast Kernel Build** 🚀%0A%0A*Status: Patches apply kiye jaa rahe hain...*%0A%0A*Progress:*%0A\`[■■■■■□□□□□]\` 50%%"
           curl -s -X POST "https://api.telegram.org/bot${{ env.TELEGRAM_TOKEN }}/editMessageText" -d "chat_id=${{ env.TELEGRAM_CHAT_ID }}" -d "message_id=${{ env.MESSAGE_ID }}" -d "text=${MESSAGE_TEXT}" -d "parse_mode=Markdown"
-
-          # ... (Saare patch apply karne wale commands yaha aayenge) ...
+          # ... (Patches apply karne ke steps yaha aayenge) ...
 
       - name: Build Kernel
         run: |
-          # Kernel build shuru karega
           MESSAGE_TEXT="🚀 **ThunderBlast Kernel Build** 🚀%0A%0A*Status: Kernel build ho raha hai... Isme time lagega... ☕*%0A%0A*Progress:*%0A\`[■■■■■■□□□□]\` 60%%"
           curl -s -X POST "https://api.telegram.org/bot${{ env.TELEGRAM_TOKEN }}/editMessageText" -d "chat_id=${{ env.TELEGRAM_CHAT_ID }}" -d "message_id=${{ env.MESSAGE_ID }}" -d "text=${MESSAGE_TEXT}" -d "parse_mode=Markdown"
-          
           cd "$CONFIG"
           if [ -f "build/build.sh" ]; then
             LTO=thin SYSTEM_DLKM_RE_SIGN=0 BUILD_SYSTEM_DLKM=0 KMI_SYMBOL_LIST_STRICT_MODE=0 BUILD_CONFIG=common/build.config.gki.aarch64 build/build.sh CC="/usr/bin/ccache clang"
           else
             tools/bazel build --disk_cache=/home/runner/.cache/bazel --config=fast --lto=thin //common:kernel_aarch64_dist
           fi
-          ccache --show-stats
           cd ..
 
       - name: Create ZIP File
         run: |
-          # ZIP file banayega
           MESSAGE_TEXT="🚀 **ThunderBlast Kernel Build** 🚀%0A%0A*Status: Build complete! ZIP file banayi ja rahi hai...*%0A%0A*Progress:*%0A\`[■■■■■■■■■□]\` 90%%"
           curl -s -X POST "https://api.telegram.org/bot${{ env.TELEGRAM_TOKEN }}/editMessageText" -d "chat_id=${{ env.TELEGRAM_CHAT_ID }}" -d "message_id=${{ env.MESSAGE_ID }}" -d "text=${MESSAGE_TEXT}" -d "parse_mode=Markdown"
-          
-          # ... (Image patch aur copy karne ke steps) ...
           IMAGE_SRC_PATH=""
           if [[ "${{ inputs.android_version }}" == "android12" || "${{ inputs.android_version }}" == "android13" ]]; then
             IMAGE_SRC_PATH="./$CONFIG/out/${{ inputs.android_version }}-${{ inputs.kernel_version }}/dist"
@@ -213,7 +163,6 @@ jobs:
             IMAGE_SRC_PATH="./$CONFIG/bazel-bin/common/kernel_aarch64"
           fi
           cp "$IMAGE_SRC_PATH/Image" ./
-          
           cd ./AnyKernel3
           ZIP_NAME="${{ inputs.android_version }}-${{ inputs.kernel_version }}.${{ inputs.sub_level }}-${{ inputs.os_patch_level }}-AnyKernel3.zip"
           mv ../Image ./Image
@@ -221,10 +170,33 @@ jobs:
           rm ./Image
           cd ..
 
-      - name: Finalizing and Uploading
+      - name: Create GitHub Release
+        if: inputs.make_release == true
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ./${{ inputs.android_version }}-${{ inputs.kernel_version }}.${{ inputs.sub_level }}-${{ inputs.os_patch_level }}-AnyKernel3.zip
+          tag_name: ${{ env.CONFIG }}-${{ github.run_number }}
+          name: ThunderBlast Kernel | ${{ env.CONFIG }}
+          body: |
+            ## 🌩️ ThunderBlast Kernel Release ⚡
+
+            Automatic release for build #${{ github.run_number }}.
+
+            **Kernel Information:**
+            - **Android Version:** `${{ inputs.android_version }}`
+            - **Kernel Version:** `${{ inputs.kernel_version }}`
+            - **Sub Level:** `${{ inputs.sub_level }}`
+            - **OS Patch Level:** `${{ inputs.os_patch_level }}`
+            - **KernelSU Variant:** `${{ inputs.kernelsu_variant }}`
+            - **Kernel Name:** `Sky kernel`
+
+            Compiled with love and lots of coffee. ❤️☕
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Finalizing and Uploading to Telegram
         run: |
-          # Final message update karega
-          MESSAGE_TEXT="✅ **ThunderBlast Kernel Build Safal!** ✅%0A%0A*Status: Ho gaya! Ab file upload ki jaa rahi hai...*%0A%0A*Progress:*%0A\`[■■■■■■■■■■]\` 100%%"
+          MESSAGE_TEXT="✅ ** Kernel Build Safal!** ✅%0A%0A*Status: Ho gaya! Ab file Telegram pe upload ki jaa rahi hai...*%0A%0A*Progress:*%0A\`[■■■■■■■■■■]\` 100%%"
           curl -s -X POST "https://api.telegram.org/bot${{ env.TELEGRAM_TOKEN }}/editMessageText" -d "chat_id=${{ env.TELEGRAM_CHAT_ID }}" -d "message_id=${{ env.MESSAGE_ID }}" -d "text=${MESSAGE_TEXT}" -d "parse_mode=Markdown"
 
       - name: Upload to Telegram
@@ -236,10 +208,12 @@ jobs:
           message: |
             Le bhai, tera kernel taiyaar hai! Mauj kar! 🎉
 
+            GitHub Release bhi ban gaya hai. Check kar le!
+
             **Kernel Information:**
             - **Android Version:** `${{ inputs.android_version }}`
             - **Kernel Version:** `${{ inputs.kernel_version }}`
-            - **Kernel Name:** `🌩️ThuderBlast⚡`
+            - **Kernel Name:** `Sky kernel`
 
             Upar di gayi ZIP file download kar le. 👇
 
