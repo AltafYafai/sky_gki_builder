@@ -8,40 +8,64 @@ on:
   workflow_call: # Allows this workflow to be called from another workflow.
     inputs:
       make_release:
+        description: 'Create a GitHub Release'
         required: true
         type: boolean
         default: true
       android_version:
+        description: 'Target Android Version (e.g., android13)'
         required: true
         type: string
       kernel_version:
+        description: 'Kernel Version (e.g., 5.10)'
         required: true
         type: string
         default: "5.10" # Default kernel version
       sub_level:
+        description: 'Kernel Sub-level'
         required: true
         type: string
       os_patch_level:
+        description: 'OS Security Patch Level'
         required: true
         type: string
       kernelsu_variant:
+        description: 'KernelSU Variant (e.g., SukiSU)'
         required: true
         type: string
       kernelsu_branch:
+        description: 'KernelSU Branch (e.g., Stable, Dev)'
         required: true
         type: string
       kernelsu_branch_other:
+        description: 'Custom KernelSU branch if Other is selected'
         required: false
         type: string
       revision:
+        description: 'GKI boot.img revision'
         required: false
         type: string
+      # ---- Customization Options ----
+      enable_zram_patches:
+        description: 'Apply custom ZRAM (LZ4KD & ZSTDN) patches'
+        required: false
+        type: boolean
+        default: false
+      create_boot_images:
+        description: 'Create flashable boot.img files'
+        required: false
+        type: boolean
+        default: false
+
     secrets:
       # Secrets must be passed from the calling workflow.
       TELEGRAM_BOT_TOKEN:
         required: true
       TELEGRAM_CHAT_ID:
         required: true
+      BOOT_SIGN_KEY:
+        required: false
+
 
 jobs:
   build-kernel:
@@ -50,7 +74,6 @@ jobs:
       CCACHE_COMPILERCHECK: "%compiler% -dumpmachine; %compiler% -dumpversion"
       CCACHE_NOHASHDIR: "true"
       CCACHE_HARDLINK: "true"
-      ZRAM: "true"
       # Credentials are now sourced from secrets for better security.
       TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
       TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
@@ -143,19 +166,28 @@ jobs:
           
       - name: Apply Patches
         run: |
-          MESSAGE_TEXT="🚀 **GKI Kernel Build** 🚀%0A%0A*Status: Applying custom patches...*%0A%0A*Progress:*%0A\`[■■■■□□□□□□]\` 40%%"
+          MESSAGE_TEXT="🚀 **GKI Kernel Build** 🚀%0A%0A*Status: Applying base patches...*%0A%0A*Progress:*%0A\`[■■■■□□□□□□]\` 40%%"
           curl -s -X POST "https://api.telegram.org/bot${{ env.TELEGRAM_TOKEN }}/editMessageText" -d "chat_id=${{ env.TELEGRAM_CHAT_ID }}" -d "message_id=${{ env.MESSAGE_ID }}" -d "text=${MESSAGE_TEXT}" -d "parse_mode=Markdown"
-          # ... (All patching steps will be performed here) ...
+          # ... (All base patching steps will be performed here) ...
+      
+      - name: Apply Optional ZRAM Patches
+        if: inputs.enable_zram_patches == true
+        run: |
+          MESSAGE_TEXT="🚀 **GKI Kernel Build** 🚀%0A%0A*Status: Applying ZRAM patches...*%0A%0A*Progress:*%0A\`[■■■■■□□□□□]\` 50%%"
+          curl -s -X POST "https://api.telegram.org/bot${{ env.TELEGRAM_TOKEN }}/editMessageText" -d "chat_id=${{ env.TELEGRAM_CHAT_ID }}" -d "message_id=${{ env.MESSAGE_ID }}" -d "text=${MESSAGE_TEXT}" -d "parse_mode=Markdown"
+          # ... (ZRAM patching logic here) ...
+          echo "ZRAM patches will be applied here."
+
 
       - name: Configure Kernel
         run: |
-          MESSAGE_TEXT="🚀 **GKI Kernel Build** 🚀%0A%0A*Status: Finalizing kernel configuration...*%0A%0A*Progress:*%0A\`[■■■■■□□□□□]\` 50%%"
+          MESSAGE_TEXT="🚀 **GKI Kernel Build** 🚀%0A%0A*Status: Finalizing kernel configuration...*%0A%0A*Progress:*%0A\`[■■■■■■□□□□]\` 60%%"
           curl -s -X POST "https://api.telegram.org/bot${{ env.TELEGRAM_TOKEN }}/editMessageText" -d "chat_id=${{ env.TELEGRAM_CHAT_ID }}" -d "message_id=${{ env.MESSAGE_ID }}" -d "text=${MESSAGE_TEXT}" -d "parse_mode=Markdown"
           # ... (Kernel configuration steps here) ...
 
       - name: Compile Kernel
         run: |
-          MESSAGE_TEXT="🚀 **GKI Kernel Build** 🚀%0A%0A*Status: Compiling kernel, this will take some time... ☕*%0A%0A*Progress:*%0A\`[■■■■■■□□□□]\` 60%%"
+          MESSAGE_TEXT="🚀 **GKI Kernel Build** 🚀%0A%0A*Status: Compiling kernel, this will take some time... ☕*%0A%0A*Progress:*%0A\`[■■■■■■■□□□]\` 70%%"
           curl -s -X POST "https://api.telegram.org/bot${{ env.TELEGRAM_TOKEN }}/editMessageText" -d "chat_id=${{ env.TELEGRAM_CHAT_ID }}" -d "message_id=${{ env.MESSAGE_ID }}" -d "text=${MESSAGE_TEXT}" -d "parse_mode=Markdown"
           cd "$CONFIG"
           if [ -f "build/build.sh" ]; then
@@ -176,6 +208,8 @@ jobs:
             IMAGE_SRC_PATH="./$CONFIG/bazel-bin/common/kernel_aarch64"
           fi
           cp "$IMAGE_SRC_PATH/Image" ./
+          cp "$IMAGE_SRC_PATH/Image.lz4" ./
+          gzip -n -k -f -9 ./Image > ./Image.gz
           cd ./AnyKernel3
           ZIP_NAME="${{ env.CONFIG }}-AnyKernel3.zip"
           mv ../Image ./Image
@@ -183,17 +217,27 @@ jobs:
           rm ./Image
           cd ..
       
+      - name: Create Boot Images
+        if: inputs.create_boot_images == true
+        run: |
+          MESSAGE_TEXT="🚀 **GKI Kernel Build** 🚀%0A%0A*Status: Creating flashable boot images...*%0A%0A*Progress:*%0A\`[■■■■■■■■■□]\` 90%%"
+          curl -s -X POST "https://api.telegram.org/bot${{ env.TELEGRAM_TOKEN }}/editMessageText" -d "chat_id=${{ env.TELEGRAM_CHAT_ID }}" -d "message_id=${{ env.MESSAGE_ID }}" -d "text=${MESSAGE_TEXT}" -d "parse_mode=Markdown"
+          # ... (boot.img creation logic here) ...
+          echo "boot.img files will be created here."
+
       - name: Prepare for Release
         if: inputs.make_release == true
         run: |
-          MESSAGE_TEXT="🚀 **GKI Kernel Build** 🚀%0A%0A*Status: Preparing GitHub Release...*%0A%0A*Progress:*%0A\`[■■■■■■■■■□]\` 90%%"
+          MESSAGE_TEXT="🚀 **GKI Kernel Build** 🚀%0A%0A*Status: Preparing GitHub Release...*%0A%0A*Progress:*%0A\`[■■■■■■■■■■]\` 95%%"
           curl -s -X POST "https://api.telegram.org/bot${{ env.TELEGRAM_TOKEN }}/editMessageText" -d "chat_id=${{ env.TELEGRAM_CHAT_ID }}" -d "message_id=${{ env.MESSAGE_ID }}" -d "text=${MESSAGE_TEXT}" -d "parse_mode=Markdown"
 
       - name: Create GitHub Release
         if: inputs.make_release == true
         uses: softprops/action-gh-release@v2
         with:
-          files: ./${{ env.CONFIG }}-AnyKernel3.zip
+          files: |
+            ./${{ env.CONFIG }}-AnyKernel3.zip
+            *.img
           tag_name: ${{ env.CONFIG }}-${{ github.run_number }}
           name: GKI Kernel 5.10 | ${{ env.CONFIG }}
           body: |
@@ -207,6 +251,7 @@ jobs:
             - **Sub Level:** `${{ inputs.sub_level }}`
             - **OS Patch Level:** `${{ inputs.os_patch_level }}`
             - **KernelSU Variant:** `${{ inputs.kernelsu_variant }}`
+            - **Customizations:** ZRAM Patches (`${{ inputs.enable_zram_patches }}`), Boot Images (`${{ inputs.create_boot_images }}`)
 
             ---
             _Made with ❤️ by Suvojeet_
