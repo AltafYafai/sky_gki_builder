@@ -151,7 +151,9 @@ jobs:
           echo "AVBTOOL=$GITHUB_WORKSPACE/kernel-build-tools/linux-x86/bin/avbtool" >> $GITHUB_ENV
           echo "MKBOOTIMG=$GITHUB_WORKSPACE/mkbootimg/mkbootimg.py" >> $GITHUB_ENV
           echo "UNPACK_BOOTIMG=$GITHUB_WORKSPACE/mkbootimg/unpack_bootimg.py" >> $GITHUB_ENV
-          [ ! -f "./git-repo/repo" ] && mkdir -p ./git-repo && curl https://storage.googleapis.com/git-repo-downloads/repo > ./git-repo/repo && chmod a+rx ./git-repo/repo
+          mkdir -p ./git-repo
+          curl https://storage.googleapis.com/git-repo-downloads/repo > ./git-repo/repo
+          chmod a+rx ./git-repo/repo
           echo "REPO=$GITHUB_WORKSPACE/./git-repo/repo" >> $GITHUB_ENV
           [ ! -d "susfs4ksu" ] && git clone https://github.com/ShirkNeko/susfs4ksu.git -b "gki-${{ inputs.android_version }}-${{ inputs.kernel_version }}" susfs4ksu
           [ ! -d "SukiSU_patch" ] && git clone https://github.com/ShirkNeko/SukiSU_patch.git
