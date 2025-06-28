@@ -142,7 +142,7 @@ jobs:
           MESSAGE_TEXT="🚀 **GKI Kernel Build** 🚀%0A%0A*Status: Cloning dependencies...*%0A%0A*Progress:*%0A\`[■■□□□□□□□□]\` 20%%"
           curl -s -X POST "https://api.telegram.org/bot${{ env.TELEGRAM_TOKEN }}/editMessageText" -d "chat_id=${{ env.TELEGRAM_CHAT_ID }}" -d "message_id=${{ env.MESSAGE_ID }}" -d "text=${MESSAGE_TEXT}" -d "parse_mode=Markdown"
       
-       - name: Download Build Tools & Dependencies
+      - name: Download Build Tools & Dependencies
         run: |
           AOSP_MIRROR=https://android.googlesource.com
           BRANCH=main-kernel-build-2024
