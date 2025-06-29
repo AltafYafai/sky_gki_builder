@@ -406,7 +406,7 @@ jobs:
         with:
           files: |
             ./${{ env.CONFIG }}-AnyKernel3.zip
-            *.img
+            
           tag_name: ${{ env.CONFIG }}-${{ github.run_number }}
           name: GKI Kernel 5.10 | ${{ env.CONFIG }}
           body: |
