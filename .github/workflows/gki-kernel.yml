@@ -156,6 +156,7 @@ jobs:
           [ ! -d "susfs4ksu" ] && git clone https://github.com/ShirkNeko/susfs4ksu.git -b "gki-${{ inputs.android_version }}-${{ inputs.kernel_version }}" susfs4ksu
           [ ! -d "SukiSU_patch" ] && git clone https://github.com/ShirkNeko/SukiSU_patch.git
           [ ! -d "AnyKernel3" ] && git clone https://github.com/AltafYafai/AnyKernel3.git
+
       - name: Sync Kernel Source
         run: |
           MESSAGE_TEXT="🚀 **GKI Kernel Build** 🚀%0A%0A*Status: Syncing kernel source...*%0A%0A*Progress:*%0A\`[■■■□□□□□□□]\` 30%%"
